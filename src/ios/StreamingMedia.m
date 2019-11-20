@@ -2,8 +2,6 @@
 #import <Cordova/CDV.h>
 #import <AVFoundation/AVFoundation.h>
 #import <AVKit/AVKit.h>
-#import "LandscapeVideo.h"
-#import "PortraitVideo.h"
 
 @interface StreamingMedia()
 - (void)parseOptions:(NSDictionary *) options type:(NSString *) type;
@@ -205,9 +203,8 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
     NSLog(@"startplayer called");
     NSURL *url             =  [NSURL URLWithString:uri];
     movie                  =  [AVPlayer playerWithURL:url];
-    
-    // handle orientation
-    [self handleOrientation];
+
+    moviePlayer = [[AVPlayerViewController alloc] init];
     
     // handle gestures
     [self handleGestures];
@@ -215,13 +212,20 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
     [moviePlayer setPlayer:movie];
     [moviePlayer setShowsPlaybackControls:YES];
     [moviePlayer setUpdatesNowPlayingInfoCenter:YES];
+    [moviePlayer setAllowsPictureInPicturePlayback:NO];
+    [moviePlayer setEntersFullScreenWhenPlaybackBegins:YES];
     
     if(@available(iOS 11.0, *)) { [moviePlayer setEntersFullScreenWhenPlaybackBegins:YES]; }
-    
     // present modally so we get a close button
-    [self.viewController presentViewController:moviePlayer animated:YES completion:^(void){
-        [moviePlayer.player play];
-    }];
+    if (self.viewController.navigationController != nil) {
+        [self.viewController.navigationController presentViewController:moviePlayer animated:YES completion:^(void){
+            [self->moviePlayer.player play];
+        }];
+    } else {
+        [self.viewController presentViewController:moviePlayer animated:YES completion:^(void){
+            [self->moviePlayer.player play];
+        }];
+    }
     
     // add audio image and background color
     if ([videoType isEqualToString:TYPE_AUDIO]) {
@@ -235,6 +239,16 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
     
     // setup listners
     [self handleListeners];
+}
+
+- (UIViewController*) getTopMostViewController {
+    UIViewController *topMostViewController = UIApplication.sharedApplication.keyWindow.rootViewController;
+    
+    while (topMostViewController != nil && topMostViewController.presentedViewController != nil) {
+        topMostViewController = topMostViewController.presentedViewController;
+    }
+    
+    return topMostViewController;
 }
 
 - (void) handleListeners {
@@ -305,17 +319,6 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
         if ([recognizer isKindOfClass:[UISwipeGestureRecognizer class]]) {
             [contentView removeGestureRecognizer:recognizer];
         }
-    }
-}
-
-- (void) handleOrientation {
-    // hnadle the subclassing of the view based on the orientation variable
-    if ([mOrientation isEqualToString:@"landscape"]) {
-        moviePlayer            =  [[LandscapeAVPlayerViewController alloc] init];
-    } else if ([mOrientation isEqualToString:@"portrait"]) {
-        moviePlayer            =  [[PortraitAVPlayerViewController alloc] init];
-    } else {
-        moviePlayer            =  [[AVPlayerViewController alloc] init];
     }
 }
 
