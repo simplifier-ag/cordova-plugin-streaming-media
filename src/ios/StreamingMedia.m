@@ -24,6 +24,9 @@
     NSString *mOrientation;
     NSString *videoType;
     AVPlayer *movie;
+    BOOL controls;
+    AVPlayerItem *playerItem;
+    AVAsset *asset;
 }
 
 NSString * const TYPE_VIDEO = @"VIDEO";
@@ -51,6 +54,12 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
         initFullscreen = YES;
     }
     
+    if (![options isKindOfClass:[NSNull class]] && [options objectForKey:@"controls"]) {
+        controls = [[options objectForKey:@"controls"] boolValue];
+    } else {
+        controls = YES;
+    }
+
     if ([type isEqualToString:TYPE_AUDIO]) {
         videoType = TYPE_AUDIO;
         
@@ -201,8 +210,44 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
 
 -(void)startPlayer:(NSString*)uri {
     NSLog(@"startplayer called");
-    NSURL *url             =  [NSURL URLWithString:uri];
-    movie                  =  [AVPlayer playerWithURL:url];
+
+    CDVViewController *vc = (CDVViewController *)self.viewController;
+    NSDictionary *settings = [vc settings];
+    NSString *scheme = [settings[@"scheme"] lowercaseString];
+    NSString *hostname = [settings[@"hostname"] lowercaseString];
+    if(hostname == nil){
+        hostname = @"localhost";
+    }
+    NSString *CDV_Converted_Uri_Prefix = [NSString stringWithFormat:@"%@://%@/_app_file_", scheme, hostname];
+    //Revert converted URI
+    if([uri hasPrefix:CDV_Converted_Uri_Prefix]) {
+        uri = [uri stringByReplacingOccurrencesOfString:CDV_Converted_Uri_Prefix withString:@""];
+    }
+
+    NSError *error;
+    NSURL *url;
+
+    //Check if URL is a file URL
+    NSURL *storeURL = [NSURL fileURLWithPath:uri];
+    if ([storeURL checkResourceIsReachableAndReturnError:&error]) {
+        url = storeURL;
+    } else {
+        url =  [NSURL URLWithString:uri];
+    }
+    
+    asset = [AVAsset assetWithURL:url];
+    playerItem = [AVPlayerItem playerItemWithAsset:asset];
+
+    NSKeyValueObservingOptions options =
+            NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew;
+
+    // Register as an observer of the player item's status property
+    [playerItem addObserver:self
+                 forKeyPath:@"status"
+                    options:options
+                    context:@"AVPlayerStatus"];
+
+    movie = [AVPlayer playerWithPlayerItem:playerItem];
 
     moviePlayer = [[AVPlayerViewController alloc] init];
     
@@ -210,11 +255,11 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
     [self handleGestures];
     
     [moviePlayer setPlayer:movie];
-    [moviePlayer setShowsPlaybackControls:YES];
+    [moviePlayer setShowsPlaybackControls:controls];
     [moviePlayer setUpdatesNowPlayingInfoCenter:YES];
     [moviePlayer setAllowsPictureInPicturePlayback:NO];
     [moviePlayer setEntersFullScreenWhenPlaybackBegins:YES];
-    
+
     if(@available(iOS 11.0, *)) { [moviePlayer setEntersFullScreenWhenPlaybackBegins:YES]; }
     // present modally so we get a close button
     if (self.viewController.navigationController != nil) {
@@ -243,11 +288,11 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
 
 - (UIViewController*) getTopMostViewController {
     UIViewController *topMostViewController = UIApplication.sharedApplication.keyWindow.rootViewController;
-    
+
     while (topMostViewController != nil && topMostViewController.presentedViewController != nil) {
         topMostViewController = topMostViewController.presentedViewController;
     }
-    
+
     return topMostViewController;
 }
 
@@ -318,6 +363,35 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
         }
         if ([recognizer isKindOfClass:[UISwipeGestureRecognizer class]]) {
             [contentView removeGestureRecognizer:recognizer];
+        }
+    }
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey,id> *)change context:(void *)context{
+    if (context != @"AVPlayerStatus") {
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+        return;
+    }
+
+    if ([keyPath isEqualToString:@"status"]) {
+        AVPlayerItemStatus status = AVPlayerItemStatusUnknown;
+        // Get the status change from the change dictionary
+        NSNumber *statusNumber = change[NSKeyValueChangeNewKey];
+        if ([statusNumber isKindOfClass:[NSNumber class]]) {
+            status = statusNumber.integerValue;
+        }
+
+        if (status == AVPlayerItemStatusFailed) {
+            // Failed. Examine AVPlayerItem.error
+            NSLog(@"Error playing media: %@", [playerItem error]);
+            CDVPluginResult* pluginResult;
+            if ([playerItem error]) {
+                pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:[[playerItem error] localizedDescription]];
+            } else {
+                pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"An error occurred playing the media"];
+            }
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:callbackId];
+            [self cleanup];
         }
     }
 }
@@ -396,6 +470,11 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
         [moviePlayer.player pause];
         [moviePlayer dismissViewControllerAnimated:YES completion:nil];
         moviePlayer = nil;
+    }
+
+    if (asset) {
+        [asset cancelLoading];
+        asset = nil;
     }
 }
 @end
