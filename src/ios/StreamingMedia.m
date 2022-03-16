@@ -24,6 +24,7 @@
     NSString *mOrientation;
     NSString *videoType;
     AVPlayer *movie;
+    BOOL controls;
     AVPlayerItem *playerItem;
     AVAsset *asset;
 }
@@ -53,6 +54,12 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
         initFullscreen = YES;
     }
     
+    if (![options isKindOfClass:[NSNull class]] && [options objectForKey:@"controls"]) {
+        controls = [[options objectForKey:@"controls"] boolValue];
+    } else {
+        controls = YES;
+    }
+
     if ([type isEqualToString:TYPE_AUDIO]) {
         videoType = TYPE_AUDIO;
         
@@ -203,7 +210,7 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
 
 -(void)startPlayer:(NSString*)uri {
     NSLog(@"startplayer called");
-    
+
     CDVViewController *vc = (CDVViewController *)self.viewController;
     NSDictionary *settings = [vc settings];
     NSString *scheme = [settings[@"scheme"] lowercaseString];
@@ -230,16 +237,16 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
     
     asset = [AVAsset assetWithURL:url];
     playerItem = [AVPlayerItem playerItemWithAsset:asset];
-    
+
     NSKeyValueObservingOptions options =
             NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew;
-     
+
     // Register as an observer of the player item's status property
     [playerItem addObserver:self
                  forKeyPath:@"status"
                     options:options
                     context:@"AVPlayerStatus"];
-    
+
     movie = [AVPlayer playerWithPlayerItem:playerItem];
 
     moviePlayer = [[AVPlayerViewController alloc] init];
@@ -248,11 +255,11 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
     [self handleGestures];
     
     [moviePlayer setPlayer:movie];
-    [moviePlayer setShowsPlaybackControls:YES];
+    [moviePlayer setShowsPlaybackControls:controls];
     [moviePlayer setUpdatesNowPlayingInfoCenter:YES];
     [moviePlayer setAllowsPictureInPicturePlayback:NO];
     [moviePlayer setEntersFullScreenWhenPlaybackBegins:YES];
-    
+
     if(@available(iOS 11.0, *)) { [moviePlayer setEntersFullScreenWhenPlaybackBegins:YES]; }
     // present modally so we get a close button
     if (self.viewController.navigationController != nil) {
@@ -281,11 +288,11 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
 
 - (UIViewController*) getTopMostViewController {
     UIViewController *topMostViewController = UIApplication.sharedApplication.keyWindow.rootViewController;
-    
+
     while (topMostViewController != nil && topMostViewController.presentedViewController != nil) {
         topMostViewController = topMostViewController.presentedViewController;
     }
-    
+
     return topMostViewController;
 }
 
@@ -365,7 +372,7 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
         [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
         return;
     }
-    
+
     if ([keyPath isEqualToString:@"status"]) {
         AVPlayerItemStatus status = AVPlayerItemStatusUnknown;
         // Get the status change from the change dictionary
@@ -373,7 +380,7 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
         if ([statusNumber isKindOfClass:[NSNumber class]]) {
             status = statusNumber.integerValue;
         }
-        
+
         if (status == AVPlayerItemStatusFailed) {
             // Failed. Examine AVPlayerItem.error
             NSLog(@"Error playing media: %@", [playerItem error]);
@@ -464,7 +471,7 @@ NSString * const DEFAULT_IMAGE_SCALE = @"center";
         [moviePlayer dismissViewControllerAnimated:YES completion:nil];
         moviePlayer = nil;
     }
-    
+
     if (asset) {
         [asset cancelLoading];
         asset = nil;
